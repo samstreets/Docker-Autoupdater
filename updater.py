@@ -147,6 +147,9 @@ def check_and_update(client: docker.DockerClient):
     log.info("=" * 60)
 
     # Collect containers to check
+    # Detect own container ID to avoid self-update
+    own_id = os.environ.get("HOSTNAME", "")  # Docker sets HOSTNAME to the short container ID
+
     if LABEL_KEY and LABEL_VALUE:
         containers = client.containers.list(filters={"label": LABEL_ENABLE})
         log.info(f"Checking containers with label '{LABEL_ENABLE}': {len(containers)} found")
@@ -161,6 +164,11 @@ def check_and_update(client: docker.DockerClient):
     updated, skipped, failed = [], [], []
 
     for container in containers:
+        # Skip self to avoid stopping our own process
+        if own_id and container.short_id == own_id[:12] or container.id.startswith(own_id):
+            log.info(f"⏭️  Skipping self ({container.name})")
+            continue
+
         image_name = container.attrs["Config"]["Image"]
         container_name = container.name
         log.info(f"\n🔍 Checking: {container_name} ({image_name})")
