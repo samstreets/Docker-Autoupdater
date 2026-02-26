@@ -6,11 +6,8 @@ Checks running containers for image updates and optionally restarts them.
 
 import os
 import sys
-import json
 import logging
-import subprocess
 from datetime import datetime
-from typing import Optional
 
 import docker
 import requests
@@ -44,39 +41,27 @@ def get_docker_client() -> docker.DockerClient:
         sys.exit(1)
 
 
-def get_image_digest(image_name: str) -> Optional[str]:
-    """Pull manifest to get the remote digest without downloading the full image."""
+def check_for_update(client: docker.DockerClient, image_name: str) -> bool:
+    """
+    Pull the latest image and compare its ID to what's currently local.
+    Returns True if the image changed (update available), False if already up to date.
+    """
     try:
-        result = subprocess.run(
-            ["docker", "manifest", "inspect", "--verbose", image_name],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode != 0:
-            # Fallback: try docker pull --dry-run (newer Docker versions)
-            return None
-        data = json.loads(result.stdout)
-        if isinstance(data, list):
-            data = data[0]
-        return data.get("Descriptor", {}).get("digest") or data.get("digest")
-    except Exception as e:
-        log.debug(f"manifest inspect failed for {image_name}: {e}")
-        return None
+        try:
+            local_id = client.images.get(image_name).id
+        except docker.errors.ImageNotFound:
+            local_id = None
 
+        pulled = client.images.pull(image_name)
+        remote_id = pulled.id
 
-def get_local_digest(client: docker.DockerClient, image_name: str) -> Optional[str]:
-    """Get the repo digest of the locally cached image."""
-    try:
-        image = client.images.get(image_name)
-        digests = image.attrs.get("RepoDigests", [])
-        if digests:
-            # RepoDigests look like "nginx@sha256:abc123"
-            return digests[0].split("@")[-1]
-        return None
-    except docker.errors.ImageNotFound:
-        return None
+        log.debug(f"  Local ID:  {local_id}")
+        log.debug(f"  Remote ID: {remote_id}")
+
+        return local_id != remote_id
     except Exception as e:
-        log.debug(f"Could not get local digest for {image_name}: {e}")
-        return None
+        log.error(f"  Failed to check/pull {image_name}: {e}")
+        raise
 
 
 def send_notification(message: str):
@@ -92,20 +77,13 @@ def send_notification(message: str):
 
 
 def update_container(client: docker.DockerClient, container) -> bool:
-    """Pull latest image and recreate the container."""
+    """Recreate the container using the already-pulled latest image."""
     image_name = container.attrs["Config"]["Image"]
     container_name = container.name
 
-    log.info(f"  Pulling latest image: {image_name}")
     if DRY_RUN:
-        log.info(f"  [DRY RUN] Would pull {image_name} and restart {container_name}")
+        log.info(f"  [DRY RUN] Would restart {container_name} with new {image_name}")
         return True
-
-    try:
-        client.images.pull(image_name)
-    except Exception as e:
-        log.error(f"  Failed to pull {image_name}: {e}")
-        return False
 
     # Capture container config to recreate it
     attrs = container.attrs
@@ -173,40 +151,23 @@ def check_and_update(client: docker.DockerClient):
         container_name = container.name
         log.info(f"\n🔍 Checking: {container_name} ({image_name})")
 
-        local_digest = get_local_digest(client, image_name)
-        remote_digest = get_image_digest(image_name)
+        try:
+            has_update = check_for_update(client, image_name)
+        except Exception:
+            failed.append(container_name)
+            continue
 
-        if remote_digest is None:
-            log.warning(f"  Could not fetch remote digest for {image_name}, trying pull-based check...")
-            # Fallback: pull and compare IDs
-            try:
-                old_id = client.images.get(image_name).id
-                if not DRY_RUN:
-                    pulled = client.images.pull(image_name)
-                    new_id = pulled.id
-                    if old_id == new_id:
-                        log.info("  ✔ Already up to date.")
-                        skipped.append(container_name)
-                        continue
-                    else:
-                        log.info("  🔄 Update found! (image ID changed)")
-                        # Container will be recreated below
-                else:
-                    log.info(f"  [DRY RUN] Would check pull for {image_name}")
-                    skipped.append(container_name)
-                    continue
-            except Exception as e:
-                log.error(f"  Fallback check failed: {e}")
-                failed.append(container_name)
-                continue
-        else:
-            log.debug(f"  Local digest:  {local_digest}")
-            log.debug(f"  Remote digest: {remote_digest}")
-            if local_digest and local_digest == remote_digest:
-                log.info("  ✔ Already up to date.")
-                skipped.append(container_name)
-                continue
-            log.info("  🔄 Update available!")
+        if not has_update:
+            log.info("  ✔ Already up to date.")
+            skipped.append(container_name)
+            continue
+
+        log.info("  🔄 Update found!")
+
+        if DRY_RUN:
+            log.info("  [DRY RUN] Would recreate container.")
+            skipped.append(container_name)
+            continue
 
         if AUTO_UPDATE:
             success = update_container(client, container)
