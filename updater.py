@@ -29,7 +29,7 @@ log = logging.getLogger("docker-autoupdater")
 # --- Config ---
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "60"))
 AUTO_UPDATE = os.environ.get("AUTO_UPDATE", "true").lower() == "true"
-LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "autoupdate=true")
+LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "")
 LABEL_KEY, LABEL_VALUE = LABEL_ENABLE.split("=", 1)
 NOTIFY_WEBHOOK = os.environ.get("NOTIFY_WEBHOOK", "")  # optional webhook URL
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
