@@ -9,7 +9,6 @@ import sys
 import json
 import logging
 import subprocess
-import time
 from datetime import datetime
 from typing import Optional
 
@@ -112,7 +111,6 @@ def update_container(client: docker.DockerClient, container) -> bool:
     attrs = container.attrs
     config = attrs["Config"]
     host_config = attrs["HostConfig"]
-    networking = attrs.get("NetworkSettings", {}).get("Networks", {})
 
     log.info(f"  Stopping container: {container_name}")
     try:
@@ -179,11 +177,11 @@ def check_and_update(client: docker.DockerClient):
                     pulled = client.images.pull(image_name)
                     new_id = pulled.id
                     if old_id == new_id:
-                        log.info(f"  ✔ Already up to date.")
+                        log.info("  ✔ Already up to date.")
                         skipped.append(container_name)
                         continue
                     else:
-                        log.info(f"  🔄 Update found! (image ID changed)")
+                        log.info("  🔄 Update found! (image ID changed)")
                         # Container will be recreated below
                 else:
                     log.info(f"  [DRY RUN] Would check pull for {image_name}")
@@ -197,10 +195,10 @@ def check_and_update(client: docker.DockerClient):
             log.debug(f"  Local digest:  {local_digest}")
             log.debug(f"  Remote digest: {remote_digest}")
             if local_digest and local_digest == remote_digest:
-                log.info(f"  ✔ Already up to date.")
+                log.info("  ✔ Already up to date.")
                 skipped.append(container_name)
                 continue
-            log.info(f"  🔄 Update available!")
+            log.info("  🔄 Update available!")
 
         if AUTO_UPDATE:
             success = update_container(client, container)
@@ -211,7 +209,7 @@ def check_and_update(client: docker.DockerClient):
                 failed.append(container_name)
                 send_notification(f"❌ Failed to update `{container_name}` ({image_name})")
         else:
-            log.info(f"  ⚠️  Update available but AUTO_UPDATE=false. Skipping restart.")
+            log.info("  ⚠️  Update available but AUTO_UPDATE=false. Skipping restart.")
             send_notification(f"⚠️ Update available for `{container_name}` ({image_name}) — manual action required.")
             skipped.append(container_name)
 
