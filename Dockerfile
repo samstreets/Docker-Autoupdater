@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="Docker Auto-Updater"
 LABEL org.opencontainers.image.description="Checks and updates Docker container images automatically"
-LABEL org.opencontainers.image.source="https://github.com/youruser/docker-autoupdater"
+LABEL org.opencontainers.image.source="https://github.com/samstreets/docker-autoupdater"
 
 # Install Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
