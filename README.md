@@ -2,10 +2,14 @@
 
 A lightweight Docker container that monitors your running containers for image updates and automatically pulls and recreates them when a newer image is available on the registry.
 
+**Docker Hub:** [`samuelstreets/docker-updater`](https://hub.docker.com/r/samuelstreets/docker-updater)
+
+---
+
 ## Features
 
 - ✅ **Automatic updates** — pulls new images and recreates containers in-place
-- 🏷️ **Label-based opt-in** — only updates containers with `autoupdate=true` (configurable)
+- 🏷️ **Label-based opt-in** — optionally restrict to containers with a specific label
 - ⏰ **Scheduled checks** — runs on a configurable interval (default: every 60 minutes)
 - 🔔 **Webhook notifications** — Discord, Slack, Gotify, or any HTTP endpoint
 - 🧪 **Dry-run mode** — preview what *would* be updated without making changes
@@ -20,7 +24,7 @@ A lightweight Docker container that monitors your running containers for image u
 ```yaml
 services:
   docker-autoupdater:
-    image: ghcr.io/youruser/docker-autoupdater:latest
+    image: samuelstreets/docker-updater:latest
     container_name: docker-autoupdater
     restart: unless-stopped
     volumes:
@@ -28,10 +32,9 @@ services:
     environment:
       CHECK_INTERVAL_MINUTES: "60"
       AUTO_UPDATE: "true"
-      LABEL_ENABLE: "autoupdate=true"
 ```
 
-Then label the containers you want auto-updated:
+By default all running containers are checked. To restrict to specific containers, add the `LABEL_ENABLE` option (see [Configuration](#configuration)) and label your services:
 
 ```yaml
   nginx:
@@ -49,19 +52,18 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHECK_INTERVAL_MINUTES=60 \
   -e AUTO_UPDATE=true \
-  -e LABEL_ENABLE=autoupdate=true \
-  ghcr.io/youruser/docker-autoupdater:latest
+  samuelstreets/docker-updater:latest
 ```
 
 ### 3. Build Locally
 
 ```bash
-git clone https://github.com/youruser/docker-autoupdater
-cd docker-autoupdater
-docker build -t docker-autoupdater .
+git clone https://github.com/samuelstreets/docker-updater
+cd docker-updater
+docker build -t docker-updater .
 docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  docker-autoupdater
+  docker-updater
 ```
 
 ---
@@ -74,7 +76,7 @@ All configuration is done via environment variables:
 |---|---|---|
 | `CHECK_INTERVAL_MINUTES` | `60` | How often to check for updates. Set to `0` to run once and exit. |
 | `AUTO_UPDATE` | `true` | `true` = pull + recreate containers. `false` = notify only. |
-| `LABEL_ENABLE` | `autoupdate=true` | Only manage containers with this label. Leave empty to check all containers. |
+| `LABEL_ENABLE` | *(empty)* | Only manage containers with this label (e.g. `autoupdate=true`). Leave empty to check **all** running containers. |
 | `DRY_RUN` | `false` | Simulate updates without making any changes. |
 | `NOTIFY_WEBHOOK` | *(empty)* | POST notifications here (Discord, Slack, Gotify webhook URL). |
 | `LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
@@ -83,32 +85,37 @@ All configuration is done via environment variables:
 
 ## How It Works
 
-1. On startup (and then on each scheduled interval), the updater:
-2. Lists all running containers matching the label filter
-3. For each container, fetches the **remote image digest** via `docker manifest inspect`
-4. Compares it against the **local image digest**
-5. If they differ → pulls the new image, stops the old container, and recreates it with the same configuration
-6. Sends a webhook notification (if configured)
+1. On startup (and then on each scheduled interval), the updater lists all running containers matching the label filter (or all containers if no filter is set)
+2. For each container, it fetches the **remote image digest** via `docker manifest inspect` — no unnecessary full pulls
+3. Compares it against the **local image digest**
+4. If they differ, it pulls the new image, stops the old container, and recreates it with the same configuration
+5. Sends a webhook notification (if configured)
 
-> **Note:** The updater preserves environment variables, port bindings, volumes, network mode, and restart policy when recreating containers. For complex configs (e.g. `docker swarm` or `docker stack`), prefer Watchtower or manual orchestration.
+The updater preserves environment variables, port bindings, volumes, network mode, and restart policy when recreating containers.
 
 ---
 
 ## Webhook Notifications
 
-The updater POSTs a JSON payload to `NOTIFY_WEBHOOK` on update success or failure:
+Set `NOTIFY_WEBHOOK` to any HTTP endpoint and the updater will POST on update success or failure:
 
 ```json
 { "content": "✅ Updated Docker container `my-nginx` (nginx:latest)", "text": "..." }
 ```
 
-This format is compatible with **Discord** webhooks out of the box. For Slack, point it at an Incoming Webhook URL — Slack will use the `text` field.
+This format works out of the box with **Discord** webhooks. For **Slack**, use an Incoming Webhook URL — Slack picks up the `text` field automatically.
 
 ---
 
-## Opting Containers In/Out
+## Restricting Which Containers Are Updated
 
-By default, only containers with the label `autoupdate=true` are managed.
+By default **all running containers** are checked. To opt specific containers in instead, set `LABEL_ENABLE`:
+
+```yaml
+LABEL_ENABLE: "autoupdate=true"
+```
+
+Then label only the containers you want managed:
 
 **Docker Compose:**
 ```yaml
@@ -121,17 +128,12 @@ labels:
 docker run --label autoupdate=true ...
 ```
 
-To manage **all** running containers, set `LABEL_ENABLE` to an empty string:
-```yaml
-LABEL_ENABLE: ""
-```
-
 ---
 
 ## Limitations
 
-- Recreates containers using the Docker SDK; works best for standalone containers. For Swarm services or Compose stacks, you may prefer [Watchtower](https://github.com/containrrr/watchtower) or [Diun](https://github.com/crazy-max/diun).
-- Requires access to `/var/run/docker.sock` — grant only to trusted environments.
+- Recreates containers using the Docker SDK — works best for standalone containers. For Swarm services or Compose stacks, consider [Watchtower](https://github.com/containrrr/watchtower) or [Diun](https://github.com/crazy-max/diun).
+- Requires access to `/var/run/docker.sock` — only deploy in trusted environments.
 
 ---
 
