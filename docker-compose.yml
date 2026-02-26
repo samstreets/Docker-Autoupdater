@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   docker-autoupdater:
-    image: ghcr.io/youruser/docker-autoupdater:latest
+    image: samuelstreets/docker-updater:latest
     # Or build locally:
     # build: .
     container_name: docker-autoupdater
@@ -10,15 +10,15 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      # How often to check for updates (in minutes)
+      # How often to check for updates (in minutes). Set to 0 to run once and exit.
       CHECK_INTERVAL_MINUTES: "60"
 
       # Set to "true" to automatically pull + recreate containers when updates are found.
       # Set to "false" to only log/notify without making changes.
       AUTO_UPDATE: "true"
 
-      # Only manage containers that have this label set.
-      # Format: "key=value"  (leave empty to check ALL running containers — default)
+      # Only manage containers with this label (e.g. "autoupdate=true").
+      # Leave empty to check ALL running containers (default).
       LABEL_ENABLE: ""
 
       # Set to "true" to simulate updates without actually making changes.
@@ -29,14 +29,3 @@ services:
 
       # Log verbosity: DEBUG | INFO | WARNING | ERROR
       LOG_LEVEL: "INFO"
-
-# Example: a container that will be auto-updated
-# Uncomment and add the label to your own services:
-#
-#  nginx:
-#    image: nginx:latest
-#    container_name: my-nginx
-#    labels:
-#      autoupdate: "true"
-#    ports:
-#      - "80:80"
