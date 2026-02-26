@@ -28,7 +28,7 @@ COPY updater.py .
 # Default environment (all overridable)
 ENV CHECK_INTERVAL_MINUTES=60 \
     AUTO_UPDATE=true \
-    LABEL_ENABLE=autoupdate=true \
+    LABEL_ENABLE="" \
     DRY_RUN=false \
     LOG_LEVEL=INFO
 
