@@ -18,8 +18,8 @@ services:
       AUTO_UPDATE: "true"
 
       # Only manage containers that have this label set.
-      # Format: "key=value"  (leave empty to check ALL running containers)
-      LABEL_ENABLE: "autoupdate=true"
+      # Format: "key=value"  (leave empty to check ALL running containers — default)
+      LABEL_ENABLE: ""
 
       # Set to "true" to simulate updates without actually making changes.
       DRY_RUN: "false"
