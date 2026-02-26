@@ -210,9 +210,8 @@ def main():
             "interval",
             args=[client],
             minutes=CHECK_INTERVAL_MINUTES,
-            next_run_time=None,
         )
-        log.info(f"\n⏰ Scheduled to run every {CHECK_INTERVAL_MINUTES} minutes. Press Ctrl+C to stop.")
+        log.info(f"\n⏰ Next check in {CHECK_INTERVAL_MINUTES} minutes. Press Ctrl+C to stop.")
         try:
             scheduler.start()
         except (KeyboardInterrupt, SystemExit):
