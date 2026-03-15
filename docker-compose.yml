@@ -17,6 +17,10 @@ services:
       # Set to "false" to only log/notify without making changes.
       AUTO_UPDATE: "true"
 
+      # Set to "true" to delete the old image after a successful container update.
+      # The old image is kept automatically if another container is still using it.
+      PRUNE_OLD_IMAGES: "true"
+
       # Only manage containers with this label (e.g. "autoupdate=true").
       # Leave empty to check ALL running containers (default).
       LABEL_ENABLE: ""
