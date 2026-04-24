@@ -25,6 +25,7 @@ log = logging.getLogger("docker-autoupdater")
 # --- Config ---
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "60"))
 AUTO_UPDATE = os.environ.get("AUTO_UPDATE", "true").lower() == "true"
+PRUNE_OLD_IMAGES = os.environ.get("PRUNE_OLD_IMAGES", "true").lower() == "true"
 LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "")
 LABEL_KEY, LABEL_VALUE = LABEL_ENABLE.split("=", 1) if LABEL_ENABLE else ("", "")
 NOTIFY_WEBHOOK = os.environ.get("NOTIFY_WEBHOOK", "")  # optional webhook URL
@@ -41,10 +42,10 @@ def get_docker_client() -> docker.DockerClient:
         sys.exit(1)
 
 
-def check_for_update(client: docker.DockerClient, image_name: str) -> bool:
+def check_for_update(client: docker.DockerClient, image_name: str):
     """
     Pull the latest image and compare its ID to what's currently local.
-    Returns True if the image changed (update available), False if already up to date.
+    Returns (has_update: bool, old_image_id: str | None).
     """
     try:
         try:
@@ -58,10 +59,32 @@ def check_for_update(client: docker.DockerClient, image_name: str) -> bool:
         log.debug(f"  Local ID:  {local_id}")
         log.debug(f"  Remote ID: {remote_id}")
 
-        return local_id != remote_id
+        return local_id != remote_id, local_id
     except Exception as e:
         log.error(f"  Failed to check/pull {image_name}: {e}")
         raise
+
+
+def prune_image(client: docker.DockerClient, old_image_id: str):
+    """Remove the old image, skipping if another container still uses it."""
+    if not old_image_id:
+        return
+    if DRY_RUN:
+        log.info(f"  [DRY RUN] Would remove old image {old_image_id[:12]}")
+        return
+    try:
+        # Check if any container (running or stopped) still references this image
+        all_containers = client.containers.list(all=True)
+        still_in_use = any(c.image.id == old_image_id for c in all_containers)
+        if still_in_use:
+            log.info(f"  ⏭️  Old image {old_image_id[:12]} still in use by another container, skipping removal.")
+            return
+        client.images.remove(old_image_id, force=False)
+        log.info(f"  🗑️  Removed old image {old_image_id[:12]}")
+    except docker.errors.ImageNotFound:
+        log.debug(f"  Old image {old_image_id[:12]} already gone.")
+    except Exception as e:
+        log.warning(f"  Could not remove old image {old_image_id[:12]}: {e}")
 
 
 def send_notification(message: str):
@@ -121,10 +144,9 @@ def update_container(client: docker.DockerClient, container) -> bool:
 def check_and_update(client: docker.DockerClient):
     log.info("=" * 60)
     log.info(f"Starting update check — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    log.info(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'} | Auto-update: {AUTO_UPDATE}")
+    log.info(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'} | Auto-update: {AUTO_UPDATE} | Prune old images: {PRUNE_OLD_IMAGES}")
     log.info("=" * 60)
 
-    # Collect containers to check
     # Detect own container ID to avoid self-update
     own_id = os.environ.get("HOSTNAME", "")  # Docker sets HOSTNAME to the short container ID
 
@@ -152,7 +174,7 @@ def check_and_update(client: docker.DockerClient):
         log.info(f"\n🔍 Checking: {container_name} ({image_name})")
 
         try:
-            has_update = check_for_update(client, image_name)
+            has_update, old_image_id = check_for_update(client, image_name)
         except Exception:
             failed.append(container_name)
             continue
@@ -166,6 +188,8 @@ def check_and_update(client: docker.DockerClient):
 
         if DRY_RUN:
             log.info("  [DRY RUN] Would recreate container.")
+            if PRUNE_OLD_IMAGES:
+                prune_image(client, old_image_id)
             skipped.append(container_name)
             continue
 
@@ -173,6 +197,8 @@ def check_and_update(client: docker.DockerClient):
             success = update_container(client, container)
             if success:
                 updated.append(container_name)
+                if PRUNE_OLD_IMAGES:
+                    prune_image(client, old_image_id)
                 send_notification(f"✅ Updated Docker container `{container_name}` ({image_name})")
             else:
                 failed.append(container_name)
@@ -195,6 +221,7 @@ def main():
     log.info("🐳 Docker Auto-Updater starting...")
     log.info(f"  Check interval:   {CHECK_INTERVAL_MINUTES} minutes")
     log.info(f"  Auto-update:      {AUTO_UPDATE}")
+    log.info(f"  Prune old images: {PRUNE_OLD_IMAGES}")
     log.info(f"  Label filter:     {LABEL_ENABLE or 'None (all containers)'}")
     log.info(f"  Dry run:          {DRY_RUN}")
 
