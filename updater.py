@@ -157,7 +157,8 @@ def update_container(client: docker.DockerClient, container) -> bool:
 def check_and_update(client: docker.DockerClient):
     log.info("=" * 60)
     log.info(f"Starting update check — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    log.info(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'} | Auto-update: {AUTO_UPDATE} | Prune old images: {PRUNE_OLD_IMAGES}")
+    mode = "DRY RUN" if DRY_RUN else "LIVE"
+    log.info(f"Mode: {mode} | Auto-update: {AUTO_UPDATE} | Prune old images: {PRUNE_OLD_IMAGES}")
     log.info("=" * 60)
 
     # Detect own container ID to avoid self-update
