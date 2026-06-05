@@ -30,6 +30,8 @@ LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "")
 LABEL_KEY, LABEL_VALUE = LABEL_ENABLE.split("=", 1) if LABEL_ENABLE else ("", "")
 NOTIFY_WEBHOOK = os.environ.get("NOTIFY_WEBHOOK", "")  # optional webhook URL
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+EXCLUDE_IMAGES_RAW = os.environ.get("EXCLUDE_IMAGES", "")
+EXCLUDE_IMAGES = [img.strip() for img in EXCLUDE_IMAGES_RAW.split(",") if img.strip()]
 
 
 def get_docker_client() -> docker.DockerClient:
@@ -97,6 +99,17 @@ def send_notification(message: str):
         log.debug(f"Notification sent: {message}")
     except Exception as e:
         log.warning(f"Failed to send notification: {e}")
+
+
+def is_image_excluded(image_name: str) -> bool:
+    """Return True if the image matches any entry in EXCLUDE_IMAGES."""
+    for excluded in EXCLUDE_IMAGES:
+        # Strip tag from both sides for a base-name comparison, but also allow exact matches
+        image_base = image_name.split(":")[0]
+        excluded_base = excluded.split(":")[0]
+        if image_name == excluded or image_base == excluded_base:
+            return True
+    return False
 
 
 def update_container(client: docker.DockerClient, container) -> bool:
@@ -171,6 +184,13 @@ def check_and_update(client: docker.DockerClient):
 
         image_name = container.attrs["Config"]["Image"]
         container_name = container.name
+
+        # Skip excluded images
+        if is_image_excluded(image_name):
+            log.info(f"⏭️  Skipping excluded image: {container_name} ({image_name})")
+            skipped.append(container_name)
+            continue
+
         log.info(f"\n🔍 Checking: {container_name} ({image_name})")
 
         try:
@@ -224,6 +244,8 @@ def main():
     log.info(f"  Prune old images: {PRUNE_OLD_IMAGES}")
     log.info(f"  Label filter:     {LABEL_ENABLE or 'None (all containers)'}")
     log.info(f"  Dry run:          {DRY_RUN}")
+    if EXCLUDE_IMAGES:
+        log.info(f"  Excluded images:  {', '.join(EXCLUDE_IMAGES)}")
 
     client = get_docker_client()
 
