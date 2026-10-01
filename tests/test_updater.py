@@ -110,3 +110,46 @@ def test_successful_recreate_removes_old(monkeypatch):
     assert updater.update_container(client, container) is True
     client.api.start.assert_called_once_with("n" * 64)
     container.remove.assert_called_once()
+
+
+def test_env_int_rejects_garbage(monkeypatch):
+    monkeypatch.setenv("X_INT", "abc")
+    with pytest.raises(SystemExit):
+        updater.env_int("X_INT", 5)
+    monkeypatch.setenv("X_INT", " 7 ")
+    assert updater.env_int("X_INT", 5) == 7
+
+
+@pytest.mark.parametrize("value,expected", [("true", True), ("YES", True), ("1", True), ("false", False), ("", False)])
+def test_env_bool(monkeypatch, value, expected):
+    monkeypatch.setenv("X_BOOL", value)
+    assert updater.env_bool("X_BOOL", "false") is expected
+
+
+def test_label_filter_without_value(monkeypatch):
+    monkeypatch.setattr(updater, "LABEL_ENABLE", "autoupdate")
+    client = MagicMock()
+    client.containers.list.return_value = []
+    updater.check_and_update(client)
+    client.containers.list.assert_called_once_with(filters={"label": "autoupdate"})
+
+
+def test_stop_flag_halts_between_containers(monkeypatch):
+    monkeypatch.setattr(updater, "LABEL_ENABLE", "")
+    client = MagicMock()
+    client.containers.list.return_value = [make_container(), make_container()]
+    updater.STOP.set()
+    try:
+        updater.check_and_update(client)
+    finally:
+        updater.STOP.clear()
+    client.images.pull.assert_not_called()
+
+
+def test_notification_payload_covers_gotify(monkeypatch):
+    monkeypatch.setattr(updater, "NOTIFY_WEBHOOK", "http://hook")
+    post = MagicMock()
+    monkeypatch.setattr(updater.requests, "post", post)
+    updater.send_notification("hi")
+    payload = post.call_args.kwargs["json"]
+    assert payload["message"] == payload["content"] == payload["text"] == "hi"

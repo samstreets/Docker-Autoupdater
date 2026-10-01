@@ -8,12 +8,13 @@ import os
 import re
 import sys
 import time
+import signal
 import logging
+import threading
 from datetime import datetime
 
 import docker
 import requests
-from apscheduler.schedulers.blocking import BlockingScheduler
 
 # --- Logging Setup ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -24,16 +25,32 @@ logging.basicConfig(
 )
 log = logging.getLogger("docker-autoupdater")
 
+
 # --- Config ---
-CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "60"))
-AUTO_UPDATE = os.environ.get("AUTO_UPDATE", "true").lower() == "true"
-PRUNE_OLD_IMAGES = os.environ.get("PRUNE_OLD_IMAGES", "true").lower() == "true"
-LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "")
-LABEL_KEY, LABEL_VALUE = LABEL_ENABLE.split("=", 1) if LABEL_ENABLE else ("", "")
+def env_bool(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        log.error(f"Invalid value for {name}: {raw!r} (expected an integer)")
+        sys.exit(2)
+
+
+CHECK_INTERVAL_MINUTES = env_int("CHECK_INTERVAL_MINUTES", 60)
+AUTO_UPDATE = env_bool("AUTO_UPDATE", "true")
+PRUNE_OLD_IMAGES = env_bool("PRUNE_OLD_IMAGES", "true")
+LABEL_ENABLE = os.environ.get("LABEL_ENABLE", "").strip()  # "key" or "key=value"
 NOTIFY_WEBHOOK = os.environ.get("NOTIFY_WEBHOOK", "")  # optional webhook URL
-DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+DRY_RUN = env_bool("DRY_RUN", "false")
 EXCLUDE_IMAGES_RAW = os.environ.get("EXCLUDE_IMAGES", "")
 EXCLUDE_IMAGES = [img.strip() for img in EXCLUDE_IMAGES_RAW.split(",") if img.strip()]
+
+# Set by SIGTERM/SIGINT; checked between containers so an update is never cut off mid-way.
+STOP = threading.Event()
 
 
 def get_docker_client() -> docker.DockerClient:
@@ -109,7 +126,8 @@ def send_notification(message: str):
     if not NOTIFY_WEBHOOK:
         return
     try:
-        payload = {"content": message, "text": message}
+        # "content" = Discord, "text" = Slack, "message"/"title" = Gotify
+        payload = {"content": message, "text": message, "message": message, "title": "Docker Auto-Updater"}
         requests.post(NOTIFY_WEBHOOK, json=payload, timeout=10)
         log.debug(f"Notification sent: {message}")
     except Exception as e:
@@ -319,7 +337,7 @@ def check_and_update(client: docker.DockerClient):
     # Detect own container ID to avoid self-update
     own_id = get_own_container_id()
 
-    if LABEL_KEY and LABEL_VALUE:
+    if LABEL_ENABLE:
         containers = client.containers.list(filters={"label": LABEL_ENABLE})
         log.info(f"Checking containers with label '{LABEL_ENABLE}': {len(containers)} found")
     else:
@@ -333,6 +351,10 @@ def check_and_update(client: docker.DockerClient):
     updated, skipped, failed = [], [], []
 
     for container in containers:
+        if STOP.is_set():
+            log.info("Shutdown requested, stopping before the next container.")
+            break
+
         # Skip self to avoid stopping our own process
         if own_id and container.id.startswith(own_id):
             log.info(f"⏭️  Skipping self ({container.name})")
@@ -398,6 +420,14 @@ def check_and_update(client: docker.DockerClient):
     log.info("=" * 60)
 
 
+def handle_signal(signum, frame):
+    if STOP.is_set():
+        log.warning("Second signal received, exiting immediately.")
+        raise SystemExit(1)
+    log.info(f"Received {signal.Signals(signum).name}, finishing the current step then shutting down.")
+    STOP.set()
+
+
 def main():
     log.info("🐳 Docker Auto-Updater starting...")
     log.info(f"  Check interval:   {CHECK_INTERVAL_MINUTES} minutes")
@@ -408,24 +438,23 @@ def main():
     if EXCLUDE_IMAGES:
         log.info(f"  Excluded images:  {', '.join(EXCLUDE_IMAGES)}")
 
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
     client = get_docker_client()
 
-    # Run immediately on startup
-    check_and_update(client)
-
-    if CHECK_INTERVAL_MINUTES > 0:
-        scheduler = BlockingScheduler()
-        scheduler.add_job(
-            check_and_update,
-            "interval",
-            args=[client],
-            minutes=CHECK_INTERVAL_MINUTES,
-        )
-        log.info(f"\n⏰ Next check in {CHECK_INTERVAL_MINUTES} minutes. Press Ctrl+C to stop.")
+    while True:
         try:
-            scheduler.start()
-        except (KeyboardInterrupt, SystemExit):
-            log.info("Shutting down.")
+            check_and_update(client)
+        except Exception:
+            log.exception("Update check failed")  # keep running; try again next interval
+
+        if CHECK_INTERVAL_MINUTES <= 0:
+            break
+        log.info(f"\n⏰ Next check in {CHECK_INTERVAL_MINUTES} minutes.")
+        if STOP.wait(CHECK_INTERVAL_MINUTES * 60):
+            break
+    log.info("Shutting down.")
 
 
 if __name__ == "__main__":

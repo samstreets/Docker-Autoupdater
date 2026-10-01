@@ -5,6 +5,8 @@ services:
     # build: .
     container_name: docker-autoupdater
     restart: unless-stopped
+    # Give an in-progress update time to finish on `docker stop`
+    stop_grace_period: 60s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
