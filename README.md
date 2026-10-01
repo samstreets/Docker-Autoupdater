@@ -61,8 +61,8 @@ docker run -d \
 ### 3. Build Locally
 
 ```bash
-git clone https://github.com/samuelstreets/docker-updater
-cd docker-updater
+git clone https://github.com/samstreets/docker-autoupdater
+cd docker-autoupdater
 docker build -t docker-updater .
 docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
@@ -81,7 +81,8 @@ All configuration is done via environment variables:
 | `AUTO_UPDATE` | `true` | `true` = pull + recreate containers. `false` = notify only. |
 | `PRUNE_OLD_IMAGES` | `true` | `true` = delete the previous image after a successful update. The old image is kept if another container is still using it. |
 | `LABEL_ENABLE` | *(empty)* | Only manage containers with this label (e.g. `autoupdate=true`). Leave empty to check **all** running containers. |
-| `DRY_RUN` | `false` | Simulate updates without making any changes (including image removal). |
+| `DRY_RUN` | `false` | Simulate updates without making any changes. Compares registry digests instead of pulling, so local images are untouched. |
+| `EXCLUDE_IMAGES` | *(empty)* | Comma-separated images to never update. `nginx` excludes every tag; `nginx:1.25` excludes only that tag. |
 | `NOTIFY_WEBHOOK` | *(empty)* | POST notifications here (Discord, Slack, Gotify webhook URL). |
 | `LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 
@@ -92,11 +93,11 @@ All configuration is done via environment variables:
 1. On startup (and then on each scheduled interval), the updater lists all running containers matching the label filter (or all containers if no filter is set)
 2. For each container, it records the **current local image ID** then pulls the latest image from the registry
 3. Compares the old and new image IDs
-4. If they differ, it stops the old container and recreates it with the same configuration
+4. If they differ, it stops the old container, renames it, and creates the replacement; the old container is only deleted once the new one has started, and is restored automatically if recreation fails
 5. If `PRUNE_OLD_IMAGES=true` (default), it removes the old image — unless another container is still using it
 6. Sends a webhook notification (if configured)
 
-The updater preserves environment variables, port bindings, volumes, network mode, and restart policy when recreating containers.
+The updater preserves the container's full configuration (command, environment, ports, volumes including anonymous ones, networks and aliases, restart policy, user, healthcheck, limits and more). Settings that only mirror the old image's defaults are dropped so the new image's defaults apply. Containers pinned by digest (`image@sha256:...`) are skipped.
 
 ---
 

@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   docker-autoupdater:
     image: samuelstreets/docker-updater:latest
@@ -27,6 +25,9 @@ services:
 
       # Set to "true" to simulate updates without actually making changes.
       DRY_RUN: "false"
+
+      # Comma-separated images to never update (e.g. "postgres,redis:7").
+      EXCLUDE_IMAGES: ""
 
       # Optional: POST notifications to this webhook (Discord, Slack, Gotify, etc.)
       NOTIFY_WEBHOOK: ""
