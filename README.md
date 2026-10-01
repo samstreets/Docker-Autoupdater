@@ -80,7 +80,7 @@ All configuration is done via environment variables:
 | `CHECK_INTERVAL_MINUTES` | `60` | How often to check for updates. Set to `0` to run once and exit. |
 | `AUTO_UPDATE` | `true` | `true` = pull + recreate containers. `false` = notify only. |
 | `PRUNE_OLD_IMAGES` | `true` | `true` = delete the previous image after a successful update. The old image is kept if another container is still using it. |
-| `LABEL_ENABLE` | *(empty)* | Only manage containers with this label (e.g. `autoupdate=true`). Leave empty to check **all** running containers. |
+| `LABEL_ENABLE` | *(empty)* | Only manage containers with this label (e.g. `autoupdate=true`, or just `autoupdate` to match on the key). Leave empty to check **all** running containers. |
 | `DRY_RUN` | `false` | Simulate updates without making any changes. Compares registry digests instead of pulling, so local images are untouched. |
 | `EXCLUDE_IMAGES` | *(empty)* | Comma-separated images to never update. `nginx` excludes every tag; `nginx:1.25` excludes only that tag. |
 | `NOTIFY_WEBHOOK` | *(empty)* | POST notifications here (Discord, Slack, Gotify webhook URL). |
@@ -118,10 +118,10 @@ To opt out, set `PRUNE_OLD_IMAGES=false`.
 Set `NOTIFY_WEBHOOK` to any HTTP endpoint and the updater will POST on update success or failure:
 
 ```json
-{ "content": "✅ Updated Docker container `my-nginx` (nginx:latest)", "text": "..." }
+{ "content": "✅ Updated Docker container `my-nginx` (nginx:latest)", "text": "...", "message": "...", "title": "Docker Auto-Updater" }
 ```
 
-This format works out of the box with **Discord** webhooks. For **Slack**, use an Incoming Webhook URL — Slack picks up the `text` field automatically.
+The same message is sent under several keys so it works out of the box with **Discord** (`content`), **Slack** Incoming Webhooks (`text`) and **Gotify** (`message`/`title`).
 
 ---
 
@@ -151,7 +151,8 @@ docker run --label autoupdate=true ...
 ## Limitations
 
 - Recreates containers using the Docker SDK — works best for standalone containers. For Swarm services or Compose stacks, consider [Watchtower](https://github.com/containrrr/watchtower) or [Diun](https://github.com/crazy-max/diun).
-- Requires access to `/var/run/docker.sock` — only deploy in trusted environments.
+- Requires access to `/var/run/docker.sock` — only deploy in trusted environments. Mounting it `:ro` does **not** limit what the container can do (the API is still fully writable); for stricter control put a socket proxy such as [`tecnativa/docker-socket-proxy`](https://github.com/Tecnativa/docker-socket-proxy) in front and set `DOCKER_HOST`.
+- On `docker stop` / SIGTERM the updater finishes the step it is on and then exits. Set `stop_grace_period` (e.g. `60s`) so an in-progress update isn't killed.
 
 ---
 
