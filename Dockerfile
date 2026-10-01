@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="Docker Auto-Updater"
 LABEL org.opencontainers.image.description="Checks and updates Docker container images automatically"
