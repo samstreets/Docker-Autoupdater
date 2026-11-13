@@ -9,12 +9,14 @@ services:
     stop_grace_period: 60s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Private registries: mount a Docker config that holds the credentials
+      # - ~/.docker/config.json:/root/.docker/config.json:ro
     environment:
       # How often to check for updates (in minutes). Set to 0 to run once and exit.
       CHECK_INTERVAL_MINUTES: "60"
 
       # Set to "true" to automatically pull + recreate containers when updates are found.
-      # Set to "false" to only log/notify without making changes.
+      # Set to "false" to only log/notify without making changes (nothing is pulled).
       AUTO_UPDATE: "true"
 
       # Set to "true" to delete the old image after a successful container update.
@@ -27,6 +29,9 @@ services:
 
       # Set to "true" to simulate updates without actually making changes.
       DRY_RUN: "false"
+
+      # Seconds a recreated container must stay running before the old one is deleted.
+      START_GRACE_SECONDS: "10"
 
       # Comma-separated images to never update (e.g. "postgres,redis:7").
       EXCLUDE_IMAGES: ""
